@@ -53,6 +53,19 @@ def _load_audit_data() -> dict[str, Any]:
     return json.loads(AUDIT_DATA_PATH.read_text(encoding="utf-8"))
 
 
+def _normalize(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def _find_vendor_in_prompt(prompt: str) -> str | None:
+    normalized_prompt = _normalize(prompt)
+    vendors = sorted(_load_audit_data().keys(), key=len, reverse=True)
+    for vendor in vendors:
+        if _normalize(vendor) in normalized_prompt:
+            return vendor
+    return None
+
+
 def read_audit_data(vendor_name: str) -> str:
     """Read the bundled audit datasource for a vendor."""
     data = _load_audit_data().get(vendor_name)
@@ -68,6 +81,24 @@ def read_audit_data(vendor_name: str) -> str:
             indent=2,
         )
     return json.dumps(data, indent=2)
+
+
+def build_augmented_prompt(prompt: str) -> str:
+    vendor_name = _find_vendor_in_prompt(prompt)
+    if vendor_name is None:
+        return prompt
+
+    contract_text = read_contract(vendor_name)
+    audit_data = read_audit_data(vendor_name)
+    return (
+        f"{prompt}\n\n"
+        "LOCAL REFERENCE DATA\n"
+        f"Vendor: {vendor_name}\n\n"
+        "Contract:\n"
+        f"{contract_text}\n\n"
+        "Bundled Audit Data:\n"
+        f"{audit_data}\n"
+    )
 
 
 def write_todos(plan: str) -> str:
@@ -101,7 +132,7 @@ def load_model_name() -> str:
 
 def invoke_agent(prompt: str) -> str:
     agent = build_agent(load_model_name())
-    result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
+    result = agent.invoke({"messages": [{"role": "user", "content": build_augmented_prompt(prompt)}]})
     messages = result.get("messages", [])
     if not messages:
         return ""

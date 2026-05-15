@@ -26,3 +26,11 @@ def test_read_audit_data_returns_bundled_datasource():
     assert data["invoice_amount_inr"] == 500000.0
     assert data["days_late"] == 14
     assert data["penalty_amount_inr"] == 25000.0
+
+
+def test_build_augmented_prompt_includes_local_datasource_for_known_vendor():
+    prompt = audit_agent.build_augmented_prompt("Audit the account for Gujarat Steel Corp.")
+    assert "LOCAL REFERENCE DATA" in prompt
+    assert "Gujarat Steel Corp" in prompt
+    assert "5% penalty" in prompt
+    assert '"invoice_amount_inr": 500000.0' in prompt
