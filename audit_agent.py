@@ -15,12 +15,14 @@ ENV_PATH = ROOT / ".env"
 DEFAULT_MODEL = "openrouter:inclusionai/ring-2.6-1t:free"
 
 CONTRACTS_DIR = ROOT / "contracts"
+AUDIT_DATA_PATH = ROOT / "audit_data.json"
 SYSTEM_PROMPT = """
 You are the Senior Financial Auditor for Shree Manufacturing Pvt. Ltd.
 Business rules: report any discrepancy greater than INR 0, use 30 days net unless specified otherwise, and check contract clauses for late-delivery penalties.
 Data conventions: currency is INR and dates use YYYY-MM-DD.
-Protocol: BEFORE taking any action, use write_todos to outline a 3-step audit plan. Update the todo list as you progress. Use read_file to access vendor contracts. Only answer questions related to finance, auditing, or corporate compliance.
-You have access to: write_todos (planning), read_file (contract access).
+Protocol: BEFORE taking any action, use write_todos to outline a 3-step audit plan. Update the todo list as you progress. Use read_file to access vendor contracts and read_audit_data to access the bundled account records in this repo. Only answer questions related to finance, auditing, or corporate compliance.
+The bundled datasource already contains invoice, payment, and delivery context for the workshop vendors. Do not ask the user to provide account records unless a vendor is missing from the bundled datasource.
+You have access to: write_todos (planning), read_file (contract access), read_audit_data (bundled datasource access).
 """.strip()
 
 
@@ -47,6 +49,27 @@ def read_file(vendor_name: str) -> str:
         return f"Contract not found for vendor: {vendor_name}. Available contracts are in {CONTRACTS_DIR}"
 
 
+def _load_audit_data() -> dict[str, Any]:
+    return json.loads(AUDIT_DATA_PATH.read_text(encoding="utf-8"))
+
+
+def read_audit_data(vendor_name: str) -> str:
+    """Read the bundled audit datasource for a vendor."""
+    data = _load_audit_data().get(vendor_name)
+    if data is None:
+        available = sorted(_load_audit_data().keys())
+        return json.dumps(
+            {
+                "vendor_name": vendor_name,
+                "found": False,
+                "available_vendors": available,
+                "source": str(AUDIT_DATA_PATH),
+            },
+            indent=2,
+        )
+    return json.dumps(data, indent=2)
+
+
 def write_todos(plan: str) -> str:
     """Write a todo list/plan for the audit. Called first before any other action."""
     logger.info(f"Audit Plan:\n{plan}")
@@ -56,13 +79,19 @@ def write_todos(plan: str) -> str:
 def build_agent(model_name: str):
     return create_deep_agent(
         model=model_name,
-        tools=[write_todos, read_file],
+        tools=[write_todos, read_file, read_audit_data],
         system_prompt=SYSTEM_PROMPT,
     )
 
 
 def run_self_check() -> str:
-    return read_contract("Gujarat Steel Corp")
+    return json.dumps(
+        {
+            "contract": read_contract("Gujarat Steel Corp"),
+            "audit_data": json.loads(read_audit_data("Gujarat Steel Corp")),
+        },
+        indent=2,
+    )
 
 
 def load_model_name() -> str:
